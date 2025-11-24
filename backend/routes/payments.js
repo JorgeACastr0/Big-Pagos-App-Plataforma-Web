@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const axios = require('axios'); // <--- NUEVA DEPENDENCIA
 
 const router = express.Router();
 const pool = new Pool({
@@ -8,7 +9,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// FINAL, FINAL, FINAL, DEFINITIVE CORRECTED FLOW: Using dynamically calculated SHA256 hash as per your instructions.
+// 1. Endpoint para PREPARAR el pago (sin cambios)
 router.post('/wompi-link', async (req, res) => {
   console.log('Request to prepare Wompi form data received. Body:', req.body);
   const { invoiceId } = req.body;
@@ -18,7 +19,6 @@ router.post('/wompi-link', async (req, res) => {
   }
 
   try {
-    // 1. Fetch invoice and client data
     const invoiceRes = await pool.query('SELECT * FROM invoices WHERE id = $1', [invoiceId]);
     if (invoiceRes.rows.length === 0) {
       return res.status(404).json({ error: 'Invoice not found' });
@@ -35,26 +35,17 @@ router.post('/wompi-link', async (req, res) => {
     const reference = `bigpagos_inv_${invoice.id}_${Date.now()}`;
     const amountInCents = invoice.monto_total * 100;
     const currency = invoice.moneda;
-
-    // 2. Dynamically generate the SHA256 hash
-    const integrityKey = process.env.WOMPI_INTEGRITY_SECRET; // Your test_integrity_... key
-    
-    // --- CRITICAL FIX: Concatenation order as per your instructions ---
+    const integrityKey = process.env.WOMPI_INTEGRITY_SECRET;
     const textToSign = `${reference}${amountInCents}${currency}${integrityKey}`;
-    console.log('Text to sign for SHA-256 hash:', textToSign);
-
     const signature = crypto.createHash('sha256').update(textToSign).digest('hex');
 
-    // 3. Prepare all data needed by the frontend
     const wompiFormParams = {
       'public-key': 'pub_test_7PHgC0EXcmpX4a6JOFuJbnzhbOR8ATOr',
       'signature:integrity': signature,
       'currency': currency,
       'amount-in-cents': amountInCents.toString(),
       'reference': reference,
-      'redirect-url': 'http://www.bigdata.net.co/capture.php',
-
-      // Customer data
+      'redirect-url': 'http://www.bigdata.net.co/capture.php', // <-- Correcto
       'customer-data:email': client.email,
       'customer-data:full-name': `${client.nombres} ${client.apellidos}`,
       'customer-data:phone-number': cleanedPhoneNumber,
@@ -62,8 +53,6 @@ router.post('/wompi-link', async (req, res) => {
       'customer-data:legal-id-type': 'CC',
     };
 
-    // 4. Send the complete key-value object to the frontend
-    console.log('Sending form params to frontend:', wompiFormParams);
     res.status(200).json(wompiFormParams);
 
   } catch (error) {
@@ -71,5 +60,46 @@ router.post('/wompi-link', async (req, res) => {
     res.status(500).json({ error: 'Failed to prepare Wompi form data' });
   }
 });
+
+
+// 2. NUEVO Endpoint para VERIFICAR el estado de una transacción
+router.get('/status/:transactionId', async (req, res) => {
+  const { transactionId } = req.params;
+  console.log(`Checking status for Wompi transaction: ${transactionId}`);
+
+  try {
+    // Consultamos la API de Wompi
+    const wompiApiUrl = `https://sandbox.wompi.co/v1/transactions/${transactionId}`;
+    const wompiResponse = await axios.get(wompiApiUrl);
+    
+    const transaction = wompiResponse.data.data;
+
+    // Si la transacción fue aprobada, actualizamos nuestra base de datos
+    if (transaction.status === 'APPROVED') {
+      console.log(`Transaction ${transaction.id} was APPROVED.`);
+      const reference = transaction.reference;
+      const invoiceId = reference.split('_')[2];
+
+      if (invoiceId) {
+        console.log(`Updating invoice ${invoiceId} to \'pagada\'...`);
+        await pool.query(
+          'UPDATE invoices SET estado = $1 WHERE id = $2 AND estado != $1',
+          ['pagada', invoiceId]
+        );
+        console.log(`Invoice ${invoiceId} successfully updated.`);
+      } else {
+         console.error('Could not parse invoiceId from reference:', reference);
+      }
+    }
+
+    // Enviamos el estado final a la app móvil
+    res.status(200).json({ status: transaction.status, message: 'Status checked' });
+
+  } catch (error) {
+    console.error('Error checking Wompi transaction status:', error.response ? error.response.data : error.message);
+    res.status(500).json({ error: 'Failed to check transaction status' });
+  }
+});
+
 
 module.exports = router;

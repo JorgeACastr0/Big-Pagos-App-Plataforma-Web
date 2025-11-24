@@ -22,7 +22,6 @@ class ApiService {
     }
   }
 
-  // This function now returns the full map of form parameters from the backend
   Future<Map<String, dynamic>> getWompiFormParams(String invoiceId) async {
     try {
       final response = await http.post(
@@ -40,6 +39,24 @@ class ApiService {
       } else {
         final errorData = json.decode(response.body);
         throw Exception('Error al obtener datos del formulario: ${errorData['error'] ?? response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Error de conexión: $e');
+    }
+  }
+  
+  // NUEVA FUNCIÓN para verificar el estado de la transacción
+  Future<Map<String, dynamic>> checkPaymentStatus(String transactionId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/payments/status/$transactionId'),
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final errorData = json.decode(response.body);
+        throw Exception('Error al verificar el estado: ${errorData['error'] ?? response.statusCode}');
       }
     } catch (e) {
       throw Exception('Error de conexión: $e');
