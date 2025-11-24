@@ -1,9 +1,16 @@
+import 'dart:async';
+
+import 'package:bigpagos_mobile/screens/payment_result_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:app_links/app_links.dart'; // Updated package
+
 import 'package:bigpagos_mobile/providers/auth_provider.dart';
 import 'package:bigpagos_mobile/screens/cedula_input_screen.dart';
 import 'package:bigpagos_mobile/screens/invoice_list_screen.dart';
-import 'package:bigpagos_mobile/screens/payment_screen.dart';
+
+// Global navigator key
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   runApp(
@@ -16,13 +23,62 @@ void main() {
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  late AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _initDeepLinks();
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initDeepLinks() async {
+    _appLinks = AppLinks();
+
+    // Handle initial link when app is launched from cold start
+    final appLink = await _appLinks.getInitialAppLink();
+    if (appLink != null) {
+      _handleUri(appLink);
+    }
+
+    // Handle incoming links when app is running
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      if (!mounted) return;
+      _handleUri(uri);
+    });
+  }
+
+  void _handleUri(Uri uri) {
+    if (uri.scheme == 'bigpagos' && uri.host == 'payment' && uri.path == '/result') {
+      final transactionId = uri.queryParameters['id'];
+      navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => PaymentResultScreen(transactionId: transactionId),
+        ),
+        (route) => false,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'BigPagos Mobile',
+      navigatorKey: navigatorKey, // Set the navigator key
       theme: ThemeData(
         primaryColor: const Color(0xFF1E40AF), // BigPagos blue
         colorScheme: ColorScheme.fromSeed(
@@ -59,7 +115,7 @@ class MyApp extends StatelessWidget {
       routes: {
         '/cedula': (context) => const CedulaInputScreen(),
         '/invoices': (context) => const InvoiceListScreen(),
-        '/payment': (context) => const PaymentScreen(),
+        // The result screen is now handled by the deeplink logic
       },
     );
   }

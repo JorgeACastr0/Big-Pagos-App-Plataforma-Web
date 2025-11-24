@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:bigpagos_mobile/models/invoice.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://192.168.22.209:3000'; // Para dispositivo físico
+  static const String baseUrl = 'http://10.51.180.209:3000'; // Para dispositivo físico
 
   Future<List<Invoice>> getInvoicesByCedula(String cedula) async {
     try {
