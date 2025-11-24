@@ -47,10 +47,11 @@ const swaggerSpec = swaggerJsdoc(swaggerOptions);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/admins', require('./routes/admins'));
+app.use('/api/auth', require('./routes/auth')); //Para autenticar admins en el portal web
+app.use('/api/admins', require('./routes/admins')); //
 app.use('/api/clients', require('./routes/clients'));
 app.use('/api/invoices', require('./routes/invoices'));
+app.use('/api/payments', require('./routes/payments'));
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

@@ -8,7 +8,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Middleware to verify JWT
+// Middleware to verify JWT (kept for other routes)
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -25,28 +25,66 @@ const authenticateToken = (req, res, next) => {
  * @swagger
  * /api/invoices:
  *   get:
- *     summary: Get all invoices
+ *     summary: Get invoices by client cedula (public) or all invoices (admin)
  *     tags: [Invoices]
+ *     parameters:
+ *       - in: query
+ *         name: cedula
+ *         schema:
+ *           type: string
+ *         description: The client's cedula to filter invoices.
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: List of invoices
  */
-router.get('/', authenticateToken, async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT i.*, c.nombres, c.apellidos, c.cedula
-      FROM invoices i
-      JOIN clients c ON i.cliente_id = c.id
-      ORDER BY i.created_at DESC
-    `);
-    res.json(result.rows);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+router.get('/', async (req, res) => {
+  const { cedula } = req.query;
+
+  // Public query by cedula
+  if (cedula) {
+    try {
+      const result = await pool.query(`
+        SELECT i.*, c.nombres, c.apellidos, c.cedula
+        FROM invoices i
+        JOIN clients c ON i.cliente_id = c.id
+        WHERE c.cedula = $1
+        ORDER BY i.created_at DESC
+      `, [cedula]);
+      return res.json(result.rows);
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
   }
+  
+  // If no cedula, it must be an authenticated admin request
+  // We re-apply the authentication logic here manually for this specific case
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.sendStatus(401);
+
+  jwt.verify(token, process.env.JWT_SECRET, async (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    
+    // Authenticated admin fetching all invoices
+    try {
+      const result = await pool.query(`
+        SELECT i.*, c.nombres, c.apellidos, c.cedula
+        FROM invoices i
+        JOIN clients c ON i.cliente_id = c.id
+        ORDER BY i.created_at DESC
+      `);
+      res.json(result.rows);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
 });
+
 
 /**
  * @swagger
@@ -73,19 +111,6 @@ router.get('/', authenticateToken, async (req, res) => {
  *                 type: string
  *               monto_total:
  *                 type: integer
- *               moneda:
- *                 type: string
- *                 default: COP
- *               fecha_emision:
- *                 type: string
- *                 format: date
- *               fecha_vencimiento:
- *                 type: string
- *                 format: date
- *               estado:
- *                 type: string
- *                 enum: [pendiente, pagada, vencida, anulada]
- *                 default: pendiente
  *     responses:
  *       201:
  *         description: Invoice created
@@ -129,22 +154,6 @@ router.post('/', authenticateToken, async (req, res) => {
  *         application/json:
  *           schema:
  *             type: object
- *             properties:
- *               numero:
- *                 type: string
- *               monto_total:
- *                 type: integer
- *               moneda:
- *                 type: string
- *               fecha_emision:
- *                 type: string
- *                 format: date
- *               fecha_vencimiento:
- *                 type: string
- *                 format: date
- *               estado:
- *                 type: string
- *                 enum: [pendiente, pagada, vencida, anulada]
  *     responses:
  *       200:
  *         description: Invoice updated
